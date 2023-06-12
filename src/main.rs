@@ -1,4 +1,5 @@
 use byteorder::{BigEndian, ReadBytesExt, WriteBytesExt};
+use rand::Rng;
 use std::{
     env,
     io::{self, prelude::*, BufReader, BufWriter, Cursor},
@@ -6,8 +7,12 @@ use std::{
     thread,
 };
 
-const PING: u32 = 5;
-const PONG: u32 = 6;
+const PING: u32 = 50000;
+const PONG: u32 = 50001;
+
+const TOO_HIGH: u32 = 50002;
+const TOO_LOW: u32 = 50003;
+const CORRECT: u32 = 50004;
 
 fn main() {
     let args: Vec<String> = env::args().collect();
@@ -25,7 +30,7 @@ fn run_client() {
     let desc = r#"
         Available commands:
         > ping
-        > <number>
+        > <number>: guess the number from 0 to 255
     "#;
 
     println!("Connected to the server!");
@@ -67,6 +72,15 @@ fn run_client() {
             PONG => {
                 println!("> Received pong from the server");
             }
+            TOO_LOW => {
+                println!("> Server says: the number is too low");
+            }
+            TOO_HIGH => {
+                println!("> Server says: the number is too high");
+            }
+            CORRECT => {
+                println!("> Server says: You guessed the number! Restart the program to try again");
+            }
             _ => {
                 println!("Unknown response")
             }
@@ -95,6 +109,10 @@ fn handle_connection(stream: TcpStream) {
     let mut buf_reader = BufReader::new(stream);
     let mut buf_writer = BufWriter::new(stream_clone);
 
+    let mut rng = rand::thread_rng();
+    let secret: u8 = rng.gen();
+    println!("the number generated: {}", secret);
+
     loop {
         let mut buffer = [0; 4];
         if buf_reader.read_exact(&mut buffer).is_err() {
@@ -114,7 +132,21 @@ fn handle_connection(stream: TcpStream) {
                 buf_writer.flush().unwrap();
             }
             _ => {
-                println!("Unknown request")
+                // parse a number
+                println!("> Received number: {}", decoded);
+
+                if decoded > secret as u32 {
+                    buf_writer.write_u32::<BigEndian>(TOO_HIGH).unwrap();
+                    buf_writer.flush().unwrap();
+                }
+                if decoded < secret as u32 {
+                    buf_writer.write_u32::<BigEndian>(TOO_LOW).unwrap();
+                    buf_writer.flush().unwrap();
+                }
+                if decoded == secret as u32 {
+                    buf_writer.write_u32::<BigEndian>(CORRECT).unwrap();
+                    buf_writer.flush().unwrap();
+                }
             }
         }
     }
